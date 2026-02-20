@@ -2,7 +2,7 @@
 
 /*
   Author: Martin Eden
-  Last mod.: 2025-08-30
+  Last mod.: 2026-02-20
 */
 
 /*
@@ -22,6 +22,7 @@
 #include <me_WorkMemory.h>
 #include <me_AddrsegTools.h>
 #include <me_WorkmemTools.h>
+#include <me_ProgramMemory.h>
 
 #include <me_Console.h> // [Debug]
 
@@ -132,7 +133,7 @@ TBool THeap::Reserve(
   // No idea where to place it? Return
   if (!GetInsertIndex(&InsertIndex, Size))
   {
-    Console.PrintProgmem(AsProgmemSeg("[Heap] Failed to reserve."));
+    Console.PrintProgmem(M_AsProgmemSeg("[Heap] Failed to reserve."));
     return false;
   }
 
@@ -143,7 +144,7 @@ TBool THeap::Reserve(
   //* [Sanity] All bits for span in bitmap must be clear (span is free)
   if (!RangeIsSolid(*MemSeg, 0))
   {
-    Console.PrintProgmem(AsProgmemSeg("[Heap] Span is not free."));
+    Console.PrintProgmem(M_AsProgmemSeg("[Heap] Span is not free."));
     return false;
   }
   //*/
@@ -157,7 +158,7 @@ TBool THeap::Reserve(
   // Zero data (design requirement)
   me_WorkmemTools::ZeroMem(*MemSeg);
 
-  Console.WriteProgmem(AsProgmemSeg("[Heap] Reserve ( Addr"));
+  Console.WriteProgmem(M_AsProgmemSeg("[Heap] Reserve ( Addr"));
   Console.Print(MemSeg->Addr);
   Console.Write("Size");
   Console.Print(MemSeg->Size);
@@ -183,7 +184,7 @@ TBool THeap::Release(
     return false;
   }
 
-  Console.WriteProgmem(AsProgmemSeg("[Heap] Release ( Addr"));
+  Console.WriteProgmem(M_AsProgmemSeg("[Heap] Release ( Addr"));
   Console.Print(MemSeg->Addr);
   Console.Write("Size");
   Console.Print(MemSeg->Size);
@@ -199,7 +200,7 @@ TBool THeap::Release(
   // Segment is not in our memory?
   if (!IsOurs(*MemSeg))
   {
-    Console.PrintProgmem(AsProgmemSeg("[Heap] Not ours."));
+    Console.PrintProgmem(M_AsProgmemSeg("[Heap] Not ours."));
     return false;
   }
 
@@ -212,7 +213,7 @@ TBool THeap::Release(
   //* [Sanity] All bits for span in bitmap must be set (span is used)
   if (!RangeIsSolid(*MemSeg, 1))
   {
-    Console.PrintProgmem(AsProgmemSeg("[Heap] Span is not solid."));
+    Console.PrintProgmem(M_AsProgmemSeg("[Heap] Span is not solid."));
     return false;
   }
   //*/
