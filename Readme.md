@@ -2,7 +2,7 @@
 
 (2024-10)
 
-Memory manager. Arduino library. Experimental.
+Experimental. Memory allocator. Arduino library.
 
 Currently it's "best fit" strategy with attaching allocated memory
 block to the right of free segment if size of block is less than
