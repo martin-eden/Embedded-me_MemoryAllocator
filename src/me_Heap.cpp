@@ -2,7 +2,7 @@
 
 /*
   Author: Martin Eden
-  Last mod.: 2026-02-20
+  Last mod.: 2026-03-04
 */
 
 /*
@@ -406,7 +406,7 @@ TUint_1 THeap::GetBit(
 
   BitOffset = BitIndex % BitsInByte;
 
-  me_Bits::Freetown::GetBit(&BitValue, ByteValue, BitOffset);
+  me_Bits::GetBit(&BitValue, ByteValue, BitOffset);
 
   return BitValue;
 }
@@ -431,10 +431,7 @@ void THeap::SetBit(
 
   BitOffset = BitIndex % BitsInByte;
 
-  if (BitValue == 1)
-    me_Bits::Freetown::SetBit(&ByteValue, BitOffset);
-  else
-    me_Bits::Freetown::ClearBit(&ByteValue, BitOffset);
+  me_Bits::SetBitTo(&ByteValue, BitOffset, BitValue);
 
   me_WorkMemory::Freetown::SetByteAt(ByteAddress, ByteValue);
 }
