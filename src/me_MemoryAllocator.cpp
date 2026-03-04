@@ -1,4 +1,4 @@
-// [me_Heap] Dynamic memory management
+// Dynamic memory reserve/release
 
 /*
   Author: Martin Eden
@@ -6,8 +6,8 @@
 */
 
 /*
-  Implementation uses bitmap. So overhead is (N / 8) for managing
-  (N) bytes of memory. Runtime is constant O(N).
+  Implementation uses bitmap. So overhead is 1 / 8 of memory.
+  Runtime is constant O(N).
 */
 
 /*
@@ -15,28 +15,25 @@
   with debug output.
 */
 
-#include <me_Heap.h>
+#include <me_MemoryAllocator.h>
 
 #include <me_BaseTypes.h>
 #include <me_Bits.h>
 #include <me_WorkMemory.h>
 #include <me_AddrsegTools.h>
 #include <me_WorkmemTools.h>
-#include <me_ProgramMemory.h>
 
-#include <me_Console.h> // [Debug]
-
-using namespace me_Heap;
+using namespace me_MemoryAllocator;
 
 // Another lame constant I should move somewhere
 const TUint_1 BitsInByte = 8;
 
-// ( THeap
+// ( TMemoryAllocator
 
 /*
   Free our data via stock free()
 */
-THeap::~THeap()
+TMemoryAllocator::~TMemoryAllocator()
 {
   /*
     If we're alive via global (then we shouldn't die but anyway)
@@ -52,7 +49,7 @@ THeap::~THeap()
 
   This implementation can't allocate more than 8 KiB memory.
 */
-TBool THeap::Init(
+TBool TMemoryAllocator::Init(
   TUint_2 Size
 )
 {
@@ -67,36 +64,36 @@ TBool THeap::Init(
   */
 
   /*
-    We want to keep things simple. Bit index is eight times more
-    than byte index. So for 64Ki max bit index is 512Ki.
+    We want to keep things simple
 
-    That's outside of UInt_2 range that I'm trying to stay
-    (unless absolutely necessary or unless I really want to.).
+    Bit index is eight times more than byte index.
 
-    In this case my system having 2Ki memory. Maximum this code
-    can allocate is 8Ki. I'm not going to make deviations and
-    write code that can allocate 64Ki. Or 4Gi. Or 4Gi*4Gi.
+    So for 64 KiB max bit index is 512 Ki. For 2 KiB max is 16 Ki.
+
+    512 Ki is more than 64 Ki TUint_2 can address.
+
+    We want to keep bit index under 64 Ki (ATmega328 has no TUint_4
+    support). That means maximum memory for heap is 8 KiB.
   */
-  const TUint_2 MaxSize = 0xFFFF / BitsInByte;
+  const TUint_2 MaxSize = TUint_2_Max / BitsInByte;
 
-  if (Size > MaxSize)
-    return false;
+  if (Size > MaxSize) return false;
 
   IsReadyFlag = false;
 
   // Get memory for data
   // No memory for data? Return
-  if (!HeapMem.ResizeTo(Size))
-    return false;
+  if (!Data.ResizeTo(Size)) return false;
 
   // Get memory for bitmap
   {
-    TUint_2 BitmapSize = (HeapMem.GetSize() + BitsInByte - 1) / BitsInByte;
+    TUint_2 BitmapSize = (Data.GetSize() + BitsInByte - 1) / BitsInByte;
 
     // No memory for bitmap? Release data and return.
     if (!Bitmap.ResizeTo(BitmapSize))
     {
-      HeapMem.Release();
+      Data.Release();
+
       return false;
     }
   }
@@ -109,7 +106,7 @@ TBool THeap::Init(
 /*
   Return true when we are ready
 */
-TBool THeap::IsReady()
+TBool TMemoryAllocator::IsReady()
 {
   return IsReadyFlag;
 }
@@ -119,51 +116,31 @@ TBool THeap::IsReady()
 
   Allocated block is always filled with zeroes.
 */
-TBool THeap::Reserve(
+TBool TMemoryAllocator::Reserve(
   TAddressSegment * MemSeg,
   TUint_2 Size
 )
 {
-  // Zero size? Job done!
-  if (Size == 0)
-    return true;
-
   TUint_2 InsertIndex;
 
-  // No idea where to place it? Return
-  if (!GetInsertIndex(&InsertIndex, Size))
-  {
-    Console.PrintProgmem(M_AsProgmemSeg("[Heap] Failed to reserve."));
-    return false;
-  }
+  // Zero size? Job done!
+  if (Size == 0) return true;
+
+  // Return if we have no idea where to insert
+  if (!GetInsertIndex(&InsertIndex, Size)) return false;
 
   // So far <MemSeg.Addr> is just zero-based index
   MemSeg->Addr = InsertIndex;
   MemSeg->Size = Size;
 
-  //* [Sanity] All bits for span in bitmap must be clear (span is free)
-  if (!RangeIsSolid(*MemSeg, 0))
-  {
-    Console.PrintProgmem(M_AsProgmemSeg("[Heap] Span is not free."));
-    return false;
-  }
-  //*/
-
   // Set all bits in bitmap for span
-  MarkRange(*MemSeg);
+  MarkByteRange(*MemSeg);
 
   // Now <MemSeg.Addr> is real address
-  MemSeg->Addr = MemSeg->Addr + HeapMem.GetData().Addr;
+  MemSeg->Addr += Data.GetData().Addr;
 
   // Zero data (design requirement)
   me_WorkmemTools::ZeroMem(*MemSeg);
-
-  Console.WriteProgmem(M_AsProgmemSeg("[Heap] Reserve ( Addr"));
-  Console.Print(MemSeg->Addr);
-  Console.Write("Size");
-  Console.Print(MemSeg->Size);
-  Console.Write(")");
-  Console.EndLine();
 
   return true;
 }
@@ -173,7 +150,7 @@ TBool THeap::Reserve(
 
   Released block may be filled with zeroes.
 */
-TBool THeap::Release(
+TBool TMemoryAllocator::Release(
   TAddressSegment * MemSeg
 )
 {
@@ -181,15 +158,9 @@ TBool THeap::Release(
   if (MemSeg->Size == 0)
   {
     MemSeg->Addr = 0;
-    return false;
-  }
 
-  Console.WriteProgmem(M_AsProgmemSeg("[Heap] Release ( Addr"));
-  Console.Print(MemSeg->Addr);
-  Console.Write("Size");
-  Console.Print(MemSeg->Size);
-  Console.Write(")");
-  Console.EndLine();
+    return true;
+  }
 
   LastSegSize = MemSeg->Size;
 
@@ -198,28 +169,16 @@ TBool THeap::Release(
   */
 
   // Segment is not in our memory?
-  if (!IsOurs(*MemSeg))
-  {
-    Console.PrintProgmem(M_AsProgmemSeg("[Heap] Not ours."));
-    return false;
-  }
+  if (!IsOurs(*MemSeg)) return false;
 
   // Zero data for security (optional)
   me_WorkmemTools::ZeroMem(*MemSeg);
 
   // Now <MemSeg.Addr> is zero-based index
-  MemSeg->Addr = MemSeg->Addr - HeapMem.GetData().Addr;
-
-  //* [Sanity] All bits for span in bitmap must be set (span is used)
-  if (!RangeIsSolid(*MemSeg, 1))
-  {
-    Console.PrintProgmem(M_AsProgmemSeg("[Heap] Span is not solid."));
-    return false;
-  }
-  //*/
+  MemSeg->Addr -= Data.GetData().Addr;
 
   // Clear all bits in bitmap for span
-  ClearRange(*MemSeg);
+  ClearByteRange(*MemSeg);
 
   // Yep, you're free to go
   MemSeg->Addr = 0;
@@ -233,7 +192,7 @@ TBool THeap::Release(
 
   We have freedom where to place span in bitmap.
 */
-TBool THeap::GetInsertIndex(
+TBool TMemoryAllocator::GetInsertIndex(
   TUint_2 * Index,
   TUint_2 SegSize
 )
@@ -249,7 +208,7 @@ TBool THeap::GetInsertIndex(
   */
 
   TUint_2 Cursor = 0;
-  TUint_2 Limit = HeapMem.GetSize();
+  TUint_2 Limit = Data.GetSize();
   TUint_2 BestIndex = 0xFFFF;
   TUint_2 BestDelta = 0xFFFF;
   TUint_2 BestSpanLen = 0xFFFF;
@@ -300,11 +259,11 @@ TBool THeap::GetInsertIndex(
 /*
   Find nearest busy byte to the right
 */
-TUint_2 THeap::GetNextBusyIndex(
+TUint_2 TMemoryAllocator::GetNextBusyIndex(
   TUint_2 StartIdx
 )
 {
-  TUint_2 Limit = HeapMem.GetSize();
+  TUint_2 Limit = Data.GetSize();
   TUint_2 Cursor = StartIdx;
 
   for (Cursor = StartIdx; Cursor < Limit; ++Cursor)
@@ -317,36 +276,36 @@ TUint_2 THeap::GetNextBusyIndex(
 /*
   [Internal] Set bits to given value in range
 */
-void THeap::SetRange(
+void TMemoryAllocator::SetByteRange(
   TAddressSegment MemSeg,
-  TUint_1 BitsValue
+  me_Bits::TBitValue BitValue
 )
 {
   TUint_2 StartBitIdx = MemSeg.Addr;
   TUint_2 EndBitIdx = StartBitIdx + MemSeg.Size - 1;
 
   for (TUint_2 Offset = StartBitIdx; Offset <= EndBitIdx; ++Offset)
-    SetBit(Offset, BitsValue);
+    SetBit(Offset, BitValue);
 }
 
 /*
   [Internal] Set bitmap range bits
 */
-void THeap::MarkRange(
+void TMemoryAllocator::MarkByteRange(
   TAddressSegment MemSeg
 )
 {
-  SetRange(MemSeg, 1);
+  SetByteRange(MemSeg, 1);
 }
 
 /*
   [Internal] Clear bitmap range bits
 */
-void THeap::ClearRange(
+void TMemoryAllocator::ClearByteRange(
   TAddressSegment MemSeg
 )
 {
-  SetRange(MemSeg, 0);
+  SetByteRange(MemSeg, 0);
 }
 
 /*
@@ -354,32 +313,12 @@ void THeap::ClearRange(
 
   Empty segment is never ours.
 */
-TBool THeap::IsOurs(
+TBool TMemoryAllocator::IsOurs(
   TAddressSegment MemSeg
 )
 {
   return
-    me_AddrsegTools::IsInside(MemSeg, HeapMem.GetData());
-}
-
-/*
-  [Internal] Bits in range have same given value?
-
-  I.e. all bytes in range are marked as used/free in bitmap.
-*/
-TBool THeap::RangeIsSolid(
-  TAddressSegment MemSeg,
-  TUint_1 BitsValue
-)
-{
-  TUint_2 StartBitIdx = MemSeg.Addr;
-  TUint_2 EndBitIdx = StartBitIdx + MemSeg.Size - 1;
-
-  for (TUint_2 Offset = StartBitIdx; Offset < EndBitIdx; ++Offset)
-    if (GetBit(Offset) != BitsValue)
-      return false;
-
-  return true;
+    me_AddrsegTools::IsInside(MemSeg, Data.GetData());
 }
 
 /*
@@ -387,7 +326,7 @@ TBool THeap::RangeIsSolid(
 
   Typically it's called from cycle, so no range checks.
 */
-TUint_1 THeap::GetBit(
+me_Bits::TBitValue TMemoryAllocator::GetBit(
   TUint_2 BitIndex
 )
 {
@@ -398,7 +337,7 @@ TUint_1 THeap::GetBit(
   TAddress ByteAddress;
   TUnit ByteValue;
   TUint_1 BitOffset;
-  TUint_1 BitValue;
+  me_Bits::TBitValue BitValue;
 
   ByteAddress = Bitmap.GetData().Addr + (BitIndex / BitsInByte);
 
@@ -416,9 +355,9 @@ TUint_1 THeap::GetBit(
 
   Same notice as for GetBit() - no checks here.
 */
-void THeap::SetBit(
+void TMemoryAllocator::SetBit(
   TUint_2 BitIndex,
-  TUint_1 BitValue
+  me_Bits::TBitValue BitValue
 )
 {
   TAddress ByteAddress;
@@ -436,12 +375,12 @@ void THeap::SetBit(
   me_WorkMemory::Freetown::SetByteAt(ByteAddress, ByteValue);
 }
 
-// ) THeap
+// ) TMemoryAllocator
 
 /*
   Global instance
 */
-me_Heap::THeap Heap;
+me_MemoryAllocator::TMemoryAllocator HeapMem;
 
 /*
   2024-10-11
