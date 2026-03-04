@@ -36,14 +36,15 @@ void Release_Wrapper(
 {
   TBool IsOk;
 
-  IsOk = HeapMem.Release(MemSeg);
-
   Console.Write("HeapMem.Release");
   Console.Write("(");
   Console.Print(MemSeg->Addr);
   Console.Print(MemSeg->Size);
   Console.Write(")");
   Console.Write("->");
+
+  IsOk = HeapMem.Release(MemSeg);
+
   Console.Print(IsOk);
   Console.EndLine();
 }
