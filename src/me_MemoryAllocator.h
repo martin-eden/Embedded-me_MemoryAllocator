@@ -2,7 +2,7 @@
 
 /*
   Author: Martin Eden
-  Last mod.: 2026-03-03
+  Last mod.: 2026-03-17
 */
 
 /*
@@ -14,24 +14,19 @@
 #include <me_BaseTypes.h>
 #include <me_Bits.h>
 
-#include <me_WorkmemTools.h>
-
 namespace me_MemoryAllocator
 {
   class TMemoryAllocator
   {
     public:
-      ~TMemoryAllocator();
-
-      TBool Init(TUint_2);
-      TBool IsReady();
+      TBool Init(TAddressSegment);
 
       TBool Reserve(TAddressSegment *, TUint_2);
       TBool Release(TAddressSegment *);
 
     protected:
-      me_WorkmemTools::TManagedMemory Data;
-      me_WorkmemTools::TManagedMemory Bitmap;
+      TAddressSegment Data;
+      TAddressSegment Bitmap;
       TUint_2 LastSegSize = 0;
 
       // Get index of empty span in bitmap where we will allocate
@@ -57,38 +52,12 @@ namespace me_MemoryAllocator
 
       // Set bit to given value in segment's data
       void SetBit(TUint_2, me_Bits::TBitValue);
-
-    private:
-      TBool IsReadyFlag = false;
   };
 }
-
-/*
-  Global class instance
-
-  Used to switch [TManagedMemory] allocators to our allocator
-  when we are ready.
-
-  We are ready when
-
-    HeapMem.GetIsReady() == true :
-
-      That means that someone completed HeapMem.Init(<Size>) :
-
-        That means that [TManagedMemory] allocators reserved
-        memory for our data and bitmap via stock malloc().
-
-  C developers love to hide globals under "__" prefix. Like
-  "__flp" and three more with it. We're instead declaring it
-  openly. We're assuming you know framework you working with.
-
-  If you named variable "HeapMem" and then something went wrong,
-  you're here to read this comment. Now you know.
-*/
-extern me_MemoryAllocator::TMemoryAllocator HeapMem;
 
 /*
   2024 # #
   2025 #
   2026-03-03
+  2026-03-17
 */

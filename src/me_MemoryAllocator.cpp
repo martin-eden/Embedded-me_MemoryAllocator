@@ -31,84 +31,51 @@ const TUint_1 BitsInByte = 8;
 // ( TMemoryAllocator
 
 /*
-  Free our data via stock free()
-*/
-TMemoryAllocator::~TMemoryAllocator()
-{
-  /*
-    If we're alive via global (then we shouldn't die but anyway)
-    clients should call "<OurGlobalName>.IsReady()".
-
-    If it returns "false" they should use stock free().
-  */
-  IsReadyFlag = false;
-}
-
-/*
-  Allocate memory and bitmap for given memory size
-
-  This implementation can't allocate more than 8 KiB memory.
+  Use provided memory segment as container for further allocations
 */
 TBool TMemoryAllocator::Init(
-  TUint_2 Size
+  TAddressSegment Container
 )
 {
   /*
-    We'll allocate <Size> bytes via stock malloc().
-    And then <Size> / 8 bytes for bitmap.
-    If we'll not fail, we'll return true.
+    We got memory segment to subdivide named <Container>
 
-    Actually we don't care about memory segment data that we
-    will be subdividing. We'll store it in our class just for
-    caller's convenience. What is ours is bitmap for that segment.
-  */
+    We'll reserve 1/8 of it for bitmap.
 
-  /*
-    We want to keep things simple
-
-    Bit index is eight times more than byte index.
-
-    So for 64 KiB max bit index is 512 Ki. For 2 KiB max is 16 Ki.
-
-    512 Ki is more than 64 Ki TUint_2 can address.
-
-    We want to keep bit index under 64 Ki (ATmega328 has no TUint_4
-    support). That means maximum memory for heap is 8 KiB.
+    We want to keep bit index under 64 Ki. That means maximum data
+    memory is 8 KiB.
   */
   const TUint_2 MaxSize = TUint_2_Max / BitsInByte;
 
-  if (Size > MaxSize) return false;
+  TUint_2 BitmapSize;
+  TUint_2 DataSize;
+  TUint_2 PrevDataSize;
 
-  IsReadyFlag = false;
+  // Fail for too large chunks:
+  if (Container.Size > MaxSize) return false;
+  // No zero-sized containers:
+  if (Container.Size == 0) return false;
 
-  // Get memory for data
-  // No memory for data? Return
-  if (!Data.ResizeTo(Size)) return false;
+  DataSize = Container.Size;
+  PrevDataSize = DataSize;
 
-  // Get memory for bitmap
+  // Find division point for bitmap. Consider 17-byte container f.e.
+  while (true)
   {
-    TUint_2 BitmapSize = (Data.GetSize() + BitsInByte - 1) / BitsInByte;
-
-    // No memory for bitmap? Release data and return.
-    if (!Bitmap.ResizeTo(BitmapSize))
-    {
-      Data.Release();
-
-      return false;
-    }
+    BitmapSize = (DataSize + BitsInByte - 1) / BitsInByte;
+    DataSize = Container.Size - BitmapSize;
+    if (DataSize == 0) return false;
+    if (DataSize == PrevDataSize) break;
+    PrevDataSize = DataSize;
   }
 
-  IsReadyFlag = true;
+  Data.Addr = Container.Addr;
+  Data.Size = DataSize;
+
+  Bitmap.Addr = Data.Addr + Data.Size;
+  Bitmap.Size = BitmapSize;
 
   return true;
-}
-
-/*
-  Return true when we are ready
-*/
-TBool TMemoryAllocator::IsReady()
-{
-  return IsReadyFlag;
 }
 
 /*
@@ -123,8 +90,8 @@ TBool TMemoryAllocator::Reserve(
 {
   TUint_2 InsertIndex;
 
-  // Zero size? Job done!
-  if (Size == 0) return true;
+  // Zero size is discouraged
+  if (Size == 0) return false;
 
   // Return if we have no idea where to insert
   if (!GetInsertIndex(&InsertIndex, Size)) return false;
@@ -137,10 +104,12 @@ TBool TMemoryAllocator::Reserve(
   MarkByteRange(*MemSeg);
 
   // Now <MemSeg.Addr> is real address
-  MemSeg->Addr += Data.GetData().Addr;
+  MemSeg->Addr += Data.Addr;
 
   // Zero data (design requirement)
   me_WorkmemTools::ZeroMem(*MemSeg);
+
+  LastSegSize = MemSeg->Size;
 
   return true;
 }
@@ -154,19 +123,14 @@ TBool TMemoryAllocator::Release(
   TAddressSegment * MemSeg
 )
 {
-  // Zero size? Job done!
-  if (MemSeg->Size == 0)
-  {
-    MemSeg->Addr = 0;
-
-    return true;
-  }
-
-  LastSegSize = MemSeg->Size;
-
   /*
     We're marking span as free in bitmap.
   */
+
+  // Zero size is discouraged
+  if (MemSeg->Size == 0) return false;
+
+  LastSegSize = MemSeg->Size;
 
   // Segment is not in our memory?
   if (!IsOurs(*MemSeg)) return false;
@@ -175,7 +139,7 @@ TBool TMemoryAllocator::Release(
   me_WorkmemTools::ZeroMem(*MemSeg);
 
   // Now <MemSeg.Addr> is zero-based index
-  MemSeg->Addr -= Data.GetData().Addr;
+  MemSeg->Addr -= Data.Addr;
 
   // Clear all bits in bitmap for span
   ClearByteRange(*MemSeg);
@@ -208,10 +172,10 @@ TBool TMemoryAllocator::GetInsertIndex(
   */
 
   TUint_2 Cursor = 0;
-  TUint_2 Limit = Data.GetSize();
-  TUint_2 BestIndex = 0xFFFF;
-  TUint_2 BestDelta = 0xFFFF;
-  TUint_2 BestSpanLen = 0xFFFF;
+  TUint_2 Limit = Data.Size;
+  TUint_2 BestIndex = TUint_2_Max;
+  TUint_2 BestDelta = TUint_2_Max;
+  TUint_2 BestSpanLen = TUint_2_Max;
 
   TUint_2 NextBusy;
   TUint_2 SpanLen;
@@ -246,8 +210,6 @@ TBool TMemoryAllocator::GetInsertIndex(
     if (AttachToRight)
       BestIndex = BestIndex + (BestSpanLen - SegSize);
 
-    LastSegSize = SegSize;
-
     *Index = BestIndex;
 
     return true;
@@ -263,12 +225,11 @@ TUint_2 TMemoryAllocator::GetNextBusyIndex(
   TUint_2 StartIdx
 )
 {
-  TUint_2 Limit = Data.GetSize();
+  TUint_2 Limit = Data.Size;
   TUint_2 Cursor = StartIdx;
 
   for (Cursor = StartIdx; Cursor < Limit; ++Cursor)
-    if (GetBit(Cursor))
-      break;
+    if (GetBit(Cursor)) break;
 
   return Cursor;
 }
@@ -317,14 +278,11 @@ TBool TMemoryAllocator::IsOurs(
   TAddressSegment MemSeg
 )
 {
-  return
-    me_AddrsegTools::IsInside(MemSeg, Data.GetData());
+  return me_AddrsegTools::IsInside(MemSeg, Data);
 }
 
 /*
   Return bit value in bitmap's data
-
-  Typically it's called from cycle, so no range checks.
 */
 me_Bits::TBitValue TMemoryAllocator::GetBit(
   TUint_2 BitIndex
@@ -339,12 +297,9 @@ me_Bits::TBitValue TMemoryAllocator::GetBit(
   TUint_1 BitOffset;
   me_Bits::TBitValue BitValue;
 
-  ByteAddress = Bitmap.GetData().Addr + (BitIndex / BitsInByte);
-
+  ByteAddress = Bitmap.Addr + (BitIndex / BitsInByte);
   ByteValue = me_WorkMemory::Freetown::GetByteFrom(ByteAddress);
-
   BitOffset = BitIndex % BitsInByte;
-
   me_Bits::GetBit(&BitValue, ByteValue, BitOffset);
 
   return BitValue;
@@ -364,29 +319,17 @@ void TMemoryAllocator::SetBit(
   TUnit ByteValue;
   TUint_1 BitOffset;
 
-  ByteAddress = Bitmap.GetData().Addr + (BitIndex / BitsInByte);
-
+  ByteAddress = Bitmap.Addr + (BitIndex / BitsInByte);
   ByteValue = me_WorkMemory::Freetown::GetByteFrom(ByteAddress);
-
   BitOffset = BitIndex % BitsInByte;
-
   me_Bits::SetBitTo(&ByteValue, BitOffset, BitValue);
-
   me_WorkMemory::Freetown::SetByteAt(ByteAddress, ByteValue);
 }
 
 // ) TMemoryAllocator
 
 /*
-  Global instance
-*/
-me_MemoryAllocator::TMemoryAllocator HeapMem;
-
-/*
-  2024-10-11
-  2024-10-12
-  2024-10-13 Two insertion points, optimizing gap for next iteration
-  2024-10-25 Using [me_Bits]
-  2025-07-29
-  2025-08-27
+  2024 # # # #
+  2025 # #
+  2026-03-17
 */
