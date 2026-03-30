@@ -295,14 +295,12 @@ me_Bits::TBitValue TMemoryAllocator::GetBit(
   TAddress ByteAddress;
   TUnit ByteValue;
   TUint_1 BitOffset;
-  me_Bits::TBitValue BitValue;
 
   ByteAddress = Bitmap.Addr + (BitIndex / BitsInByte);
   ByteValue = me_WorkMemory::Freetown::GetByteFrom(ByteAddress);
   BitOffset = BitIndex % BitsInByte;
-  me_Bits::GetBit(&BitValue, ByteValue, BitOffset);
 
-  return BitValue;
+  return me_Bits::Freetown::GetBit(&ByteValue, BitOffset);
 }
 
 /*

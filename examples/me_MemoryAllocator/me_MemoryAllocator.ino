@@ -10,6 +10,15 @@
 #include <me_BaseTypes.h>
 #include <me_Console.h>
 
+const TUint_2 HeapSize = 400;
+TUint_1 HeapMem[HeapSize];
+TAddressSegment HeapSeg =
+  {
+    .Addr = (TAddress) &HeapMem,
+    .Size = sizeof(HeapMem),
+  };
+me_MemoryAllocator::TMemoryAllocator Heap;
+
 void Reserve_Wrapper(
   TAddressSegment * MemSeg,
   TUint_2 Size
@@ -17,9 +26,9 @@ void Reserve_Wrapper(
 {
   TBool IsOk;
 
-  IsOk = HeapMem.Reserve(MemSeg, Size);
+  IsOk = Heap.Reserve(MemSeg, Size);
 
-  Console.Write("HeapMem.Reserve");
+  Console.Write("Heap.Reserve");
   Console.Write("(");
   Console.Print(MemSeg->Addr);
   Console.Print(MemSeg->Size);
@@ -36,14 +45,14 @@ void Release_Wrapper(
 {
   TBool IsOk;
 
-  Console.Write("HeapMem.Release");
+  Console.Write("Heap.Release");
   Console.Write("(");
   Console.Print(MemSeg->Addr);
   Console.Print(MemSeg->Size);
   Console.Write(")");
   Console.Write("->");
 
-  IsOk = HeapMem.Release(MemSeg);
+  IsOk = Heap.Release(MemSeg);
 
   Console.Print(IsOk);
   Console.EndLine();
@@ -52,15 +61,7 @@ void Release_Wrapper(
 
 void RunTest()
 {
-  /*
-    We'll use global object "HeapMem"
-
-    Which is declared in "me_MemoryAllocator.cpp"
-  */
-
-  const TUint_2 HeapSize = 400;
-
-  if (!HeapMem.Init(HeapSize))
+  if (!Heap.Init(HeapSeg))
   {
     Console.Print("Failed to allocate heap memory.");
 
@@ -117,4 +118,5 @@ void loop()
 /*
   2024 # # # #
   2026-03-04
+  2026-03-30
 */
