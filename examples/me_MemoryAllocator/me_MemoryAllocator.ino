@@ -12,11 +12,7 @@
 
 const TUint_2 HeapSize = 400;
 TUint_1 HeapMem[HeapSize];
-TAddressSegment HeapSeg =
-  {
-    .Addr = (TAddress) &HeapMem,
-    .Size = sizeof(HeapMem),
-  };
+TAddressSegment HeapSeg = M_AsAddrSeg(HeapMem);
 me_MemoryAllocator::TMemoryAllocator Heap;
 
 void Reserve_Wrapper(
